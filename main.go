@@ -276,13 +276,14 @@ func requestListAllOpenId() (string, error) {
 	response, body, errs := request.Get("https://api.weixin.qq.com/cgi-bin/user/get").
 		Param("access_token", getAccessToken()).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("获取全部openId请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("获取全部openId响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("获取全部openId请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("获取全部openId请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("获取全部openId请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("获取全部openId响应码异常")
 	}
 	return body, nil
 }
@@ -336,13 +337,14 @@ func requestListUserInfo(openIds []string) (string, error) {
 				"user_list": userList,
 			}).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("获取用户信息请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("获取用户信息响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("获取用户信息请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("获取用户信息请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("获取用户信息请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("获取用户信息响应码异常")
 	}
 	return body, nil
 }
@@ -382,13 +384,14 @@ func requestDeleteTagFromUser(tagId string, openIds []string) (string, error) {
 				"openid_list": openIds,
 			}).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("为用户删标签请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("为用户删标签响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("为用户删标签请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("为用户删标签请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("为用户删标签请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("为用户删标签n响应码异常")
 	}
 	return body, nil
 }
@@ -428,13 +431,14 @@ func requestAddTagToUser(tagId string, openIds []string) (string, error) {
 				"openid_list": openIds,
 			}).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("为用户加标签请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("为用户加标签响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("为用户加标签请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("为用户加标签请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("为用户加标签请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("为用户加标签响应码异常")
 	}
 	return body, nil
 }
@@ -487,13 +491,14 @@ func requestListOpenIdByTagId(tagId string) (string, error) {
 				"tagid": tagId,
 			}).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("获取标签下openid请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("获取标签下openid响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("获取标签下openid请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("获取标签下openid请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("获取标签下openid请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("获取标签下openid响应码异常")
 	}
 	return body, nil
 }
@@ -581,13 +586,14 @@ func requestListAllTag() (string, error) {
 	response, body, errs := request.Get("https://api.weixin.qq.com/cgi-bin/tags/get").
 		Param("access_token", getAccessToken()).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("获取所有标签请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("获取所有标签响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("获取所有标签请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("获取所有标签请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("获取所有标签请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("获取所有标签响应码异常")
 	}
 	return body, nil
 }
@@ -626,20 +632,21 @@ func requestCreateTag(tag string) (string, error) {
 				"tag": map[string]interface{}{"name": tag},
 			}).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("创建标签请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("创建标签响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("创建标签请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("创建标签请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("创建标签请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("创建标签响应码异常")
 	}
 	return body, nil
 }
 
 //----------------------------------------------------------------------------------------------------------------------
 
-//公众号发送模板信息
+//发送模板信息
 func sendTemplate(openId string, templateId string, url string, data interface{}) (success bool, err error) {
 	for i := 0; i < retry; i++ {
 		jsonString, err := requestSendTemplate(openId, templateId, url, data)
@@ -674,13 +681,14 @@ func requestSendTemplate(openId string, templateId string, url string, data inte
 				"data":        data,
 			}).
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": body, "errs": errs}).Info("发送模板请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("发送模板响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("发送模板信息请求")
 	if errs != nil && len(errs) > 0 {
-		return "", errors.New("发送模板请求异常")
+		return "", errors.New("发送模板信息请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("发送模板信息请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("发送模板信息响应码异常")
 	}
 	return body, nil
 }
@@ -734,13 +742,14 @@ func requestAccessToken() (string, error) {
 		Param("secret", appSecret).
 		Param("grant_type", "client_credential").
 		Timeout(timeout).End()
-	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body), "errs": errs}).Info("获取accessToken请求")
-
-	if response.StatusCode != 200 {
-		return "", errors.New("获取accessToken响应码异常")
-	}
+	log.WithFields(logrus.Fields{"errs": errs}).Info("获取accessToken请求")
 	if errs != nil && len(errs) > 0 {
 		return "", errors.New("获取accessToken请求异常")
+	}
+
+	log.WithFields(logrus.Fields{"StatusCode": response.StatusCode, "body": len(body)}).Info("获取accessToken请求")
+	if response.StatusCode != 200 {
+		return "", errors.New("获取accessToken响应码异常")
 	}
 	return body, nil
 }
