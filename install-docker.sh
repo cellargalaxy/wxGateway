@@ -14,6 +14,13 @@ do
         break
     fi
 done
+while :
+do
+    read -p "please enter token(required):" token
+    if [ ! -z $token ];then
+        break
+    fi
+done
 read -p "please enter listen port(default:8990):" listenPort
 if [ -z $listenPort ];then
     listenPort="8990"
@@ -25,6 +32,6 @@ read
 echo 'docker build'
 docker build -t wx_gateway .
 echo 'docker run'
-docker run -d --restart=always --name wx_gateway -p $listenPort:8990 -e APP_ID=$appId -e APP_SECRET=$appSecret wx_gateway
+docker run -d --restart=always --name wx_gateway -p $listenPort:8990 -e TOKEN=$token -e APP_ID=$appId -e APP_SECRET=$appSecret wx_gateway
 
 echo 'all finish'

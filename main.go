@@ -3,7 +3,10 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"github.com/gin-contrib/sessions"
+	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
+	"github.com/gofrs/uuid"
 	"github.com/parnurzeal/gorequest"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
@@ -20,12 +23,15 @@ var log = logrus.New()
 
 var timeout = 5 * time.Second
 var retry = 3
+var secretKey = "secret"
+var secret = uuid.Must(uuid.NewV4()).String()
 
+var token string
 var appId string
 var appSecret string
 var accessToken string
 
-var tagId2TemplateIdMap map[int]string
+var templateId2TagIdMap map[string]int
 var dataFilePath = "data.json"
 
 type Template struct {
@@ -69,7 +75,9 @@ func readConfig() error {
 	log.WithFields(logrus.Fields{"appId": len(appId)}).Infof("环境变量配置公众号appId长度")
 	appSecret = os.Getenv("APP_SECRET")
 	log.WithFields(logrus.Fields{"appSecret": len(appSecret)}).Infof("环境变量配置公众号appSecret长度")
-	getTagId2TemplateIdMap()
+	token = os.Getenv("TOKEN")
+	log.WithFields(logrus.Fields{"token": len(token)}).Infof("环境变量配置token长度")
+	getTemplateId2TagIdMap()
 	return nil
 }
 
@@ -77,30 +85,45 @@ func readConfig() error {
 
 func startWebService() {
 	log.Info("开始web服务")
+
 	engine := gin.Default()
+	store := cookie.NewStore([]byte(secret))
+	engine.Use(sessions.Sessions("session_id", store))
+
 	engine.GET("/", func(context *gin.Context) {
 		context.Header("Content-Type", "text/html; charset=utf-8")
 		context.String(200, indexHtmlString)
 	})
-	engine.GET("/listAllTemplate", func(context *gin.Context) {
+	engine.GET("/listAllTemplate", validate, func(context *gin.Context) {
 		context.JSON(http.StatusOK, createResponseData(listAllTemplate()))
 	})
-	engine.GET("/listAllTag", func(context *gin.Context) {
+	engine.GET("/listAllTag", validate, func(context *gin.Context) {
 		context.JSON(http.StatusOK, createResponseData(listAllTag()))
 	})
-	engine.GET("/listAllUserInfo", func(context *gin.Context) {
+	engine.GET("/listAllUserInfo", validate, func(context *gin.Context) {
 		context.JSON(http.StatusOK, createResponseData(listAllUserInfo()))
 	})
-	engine.GET("/getTagId2TemplateIdMap", func(context *gin.Context) {
-		context.JSON(http.StatusOK, createResponseData(getTagId2TemplateIdMap()))
+	engine.GET("/getTemplateId2TagIdMap", validate, func(context *gin.Context) {
+		context.JSON(http.StatusOK, createResponseData(getTemplateId2TagIdMap()))
 	})
 
-	engine.POST("/createTag", func(context *gin.Context) {
+	engine.POST("/login", func(context *gin.Context) {
+		log.Info("用户登录")
+		t := context.Request.FormValue("token")
+		if t == token {
+			setLogin(context)
+			context.JSON(http.StatusOK, createResponseData("login success", nil))
+		} else {
+			log.WithFields(logrus.Fields{"token": token}).Info("非法token")
+			context.JSON(http.StatusOK, createResponseData("illegal token", errors.New("illegal token")))
+		}
+	})
+	engine.POST("/createTag", validate, func(context *gin.Context) {
 		tag := context.PostForm("tag")
 		log.WithFields(logrus.Fields{"tag": tag}).Info("createTag表单参数")
 		context.JSON(http.StatusOK, createResponseData(createTag(tag)))
 	})
-	engine.POST("/deleteTag", func(context *gin.Context) {
+	engine.POST("/deleteTag", validate, func(context *gin.Context) {
 		tagIdString := context.PostForm("tagId")
 		log.WithFields(logrus.Fields{"tagId": tagIdString}).Info("deleteTag表单参数")
 		tagId, err := strconv.Atoi(tagIdString)
@@ -111,20 +134,20 @@ func startWebService() {
 		}
 		context.JSON(http.StatusOK, createResponseData(deleteTag(tagId)))
 	})
-	engine.POST("/saveTagId2TemplateIdMap", func(context *gin.Context) {
-		tagId2TemplateIdMapString := context.PostForm("tagId2TemplateIdMap")
-		log.WithFields(logrus.Fields{"tagId2TemplateIdMap": tagId2TemplateIdMapString}).Info("saveTagId2TemplateIdMap表单参数")
-		var t2tMap map[int]string
-		err := json.Unmarshal([]byte(tagId2TemplateIdMapString), &t2tMap)
+	engine.POST("/saveTemplateId2TagIdMap", validate, func(context *gin.Context) {
+		templateId2TagIdMapString := context.PostForm("templateId2TagIdMap")
+		log.WithFields(logrus.Fields{"templateId2TagIdMap": templateId2TagIdMapString}).Info("saveTemplateId2TagIdMap表单参数")
+		var t2tMap map[string]int
+		err := json.Unmarshal([]byte(templateId2TagIdMapString), &t2tMap)
 		if err == nil {
-			log.WithFields(logrus.Fields{"t2tMap": t2tMap}).Info("反序列化tagId2TemplateIdMap成功")
-			context.JSON(http.StatusOK, createResponseData(saveTagId2TemplateIdMap(t2tMap)))
+			log.WithFields(logrus.Fields{"t2tMap": t2tMap}).Info("反序列化templateId2TagIdMap成功")
+			context.JSON(http.StatusOK, createResponseData(saveTemplateId2TagIdMap(t2tMap)))
 		} else {
 			log.WithFields(logrus.Fields{"err": err}).Error("反序列化tag2TemplateMap失败")
 			context.JSON(http.StatusOK, createResponseData(nil, err))
 		}
 	})
-	engine.POST("/addTagToUser", func(context *gin.Context) {
+	engine.POST("/addTagToUser", validate, func(context *gin.Context) {
 		tagIdString := context.PostForm("tagId")
 		openIdString := context.PostForm("openId")
 		log.WithFields(logrus.Fields{"tagId": tagIdString, "openId": openIdString}).Info("addTagToUser表单参数")
@@ -136,7 +159,7 @@ func startWebService() {
 		}
 		context.JSON(http.StatusOK, createResponseData(addTagToUser(tagId, []string{openIdString})))
 	})
-	engine.POST("/deleteTagFromUser", func(context *gin.Context) {
+	engine.POST("/deleteTagFromUser", validate, func(context *gin.Context) {
 		tagIdString := context.PostForm("tagId")
 		openIdString := context.PostForm("openId")
 		log.WithFields(logrus.Fields{"tagId": tagIdString, "openId": openIdString}).Info("deleteTagFromUser表单参数")
@@ -149,21 +172,15 @@ func startWebService() {
 		context.JSON(http.StatusOK, createResponseData(deleteTagFromUser(tagId, []string{openIdString})))
 	})
 	engine.POST("/sendTemplateByTagId", func(context *gin.Context) {
-		tagIdString := context.PostForm("tagId")
+		templateId := context.PostForm("templateId")
 		url := context.PostForm("url")
 		dataString := context.PostForm("data")
-		log.WithFields(logrus.Fields{"tagId": tagIdString, "url": url, "data": dataString}).Info("sendTemplateByTagId表单参数")
-		tagId, err := strconv.Atoi(tagIdString)
-		if err != nil {
-			log.Error("tagId参数非法")
-			context.JSON(http.StatusOK, createResponseData(nil, err))
-			return
-		}
+		log.WithFields(logrus.Fields{"templateId": templateId, "url": url, "data": dataString}).Info("sendTemplateByTagId表单参数")
 		var data map[string]string
-		err = json.Unmarshal([]byte(dataString), &data)
+		err := json.Unmarshal([]byte(dataString), &data)
 		if err == nil {
 			log.WithFields(logrus.Fields{"data": data}).Info("反序列化data成功")
-			context.JSON(http.StatusOK, createResponseData(sendTemplateByTagId(tagId, url, data)))
+			context.JSON(http.StatusOK, createResponseData(sendTemplateByTagId(templateId, url, data)))
 		} else {
 			log.WithFields(logrus.Fields{"err": err}).Error("反序列化data失败")
 			context.JSON(http.StatusOK, createResponseData(nil, err))
@@ -171,6 +188,27 @@ func startWebService() {
 	})
 	engine.Run(address)
 	log.Info("结束web服务")
+}
+
+func validate(context *gin.Context) {
+	if !isLogin(context) {
+		context.Abort()
+		context.JSON(http.StatusUnauthorized, createResponseData("please login", errors.New("please login")))
+	} else {
+		context.Next()
+	}
+}
+
+func setLogin(context *gin.Context) {
+	session := sessions.Default(context)
+	session.Set(secretKey, secret)
+	session.Save()
+}
+
+func isLogin(context *gin.Context) bool {
+	session := sessions.Default(context)
+	sessionSecret := session.Get(secretKey)
+	return sessionSecret == secret
 }
 
 func createResponseData(data interface{}, err error) interface{} {
@@ -193,11 +231,11 @@ func listAllUserInfo() ([]UserInfo, error) {
 }
 
 //给标签用户发送模板消息
-func sendTemplateByTagId(tagId int, url string, dataMap map[string]string) ([]string, error) {
-	templateId, exist := tagId2TemplateIdMap[tagId]
+func sendTemplateByTagId(templateId string, url string, dataMap map[string]string) ([]string, error) {
+	tagId, exist := templateId2TagIdMap[templateId]
 	if !exist {
-		log.Error("tagId没有对应的templateId")
-		return nil, errors.New("tagId没有对应的templateId")
+		log.Error("templateId没有对应的tagId")
+		return nil, errors.New("templateId没有对应的tagId")
 	}
 	log.WithFields(logrus.Fields{"templateId": templateId}).Info("tagId对应的templateId")
 	data := map[string]map[string]string{}
@@ -221,10 +259,10 @@ func sendTemplateByTagId(tagId int, url string, dataMap map[string]string) ([]st
 
 //----------------------------------------------------------------------------------------------------------------------
 
-func saveTagId2TemplateIdMap(t2tMap map[int]string) (success bool, err error) {
+func saveTemplateId2TagIdMap(t2tMap map[string]int) (success bool, err error) {
 	bytes, err := json.Marshal(t2tMap)
 	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("序列化tagId2TemplateIdMap失败")
+		log.WithFields(logrus.Fields{"err": err}).Error("序列化templateId2TagIdMap失败")
 		return false, err
 	}
 	err = writeFileOrCreateIfNotExist(dataFilePath, bytes)
@@ -232,13 +270,13 @@ func saveTagId2TemplateIdMap(t2tMap map[int]string) (success bool, err error) {
 		log.WithFields(logrus.Fields{"err": err}).Error("写入数据文件失败")
 		return false, err
 	}
-	tagId2TemplateIdMap = t2tMap
+	templateId2TagIdMap = t2tMap
 	return true, nil
 }
 
-func getTagId2TemplateIdMap() (map[int]string, error) {
-	if tagId2TemplateIdMap != nil && len(tagId2TemplateIdMap) > 0 {
-		return tagId2TemplateIdMap, nil
+func getTemplateId2TagIdMap() (map[string]int, error) {
+	if templateId2TagIdMap != nil && len(templateId2TagIdMap) > 0 {
+		return templateId2TagIdMap, nil
 	}
 	jsonString, err := readFileOrCreateIfNotExist(dataFilePath, "{}")
 	if err != nil {
@@ -246,16 +284,16 @@ func getTagId2TemplateIdMap() (map[int]string, error) {
 		return nil, err
 	}
 	log.WithFields(logrus.Fields{"jsonString": jsonString}).Info("读取数据文件")
-	var t2tMap map[int]string
+	var t2tMap map[string]int
 	err = json.Unmarshal([]byte(jsonString), &t2tMap)
 	if err == nil {
-		tagId2TemplateIdMap = t2tMap
-		log.WithFields(logrus.Fields{"tagId2TemplateIdMap": tagId2TemplateIdMap}).Info("反序列化tagId2TemplateIdMap成功")
+		templateId2TagIdMap = t2tMap
+		log.WithFields(logrus.Fields{"templateId2TagIdMap": templateId2TagIdMap}).Info("反序列化templateId2TagIdMap成功")
 	} else {
-		tagId2TemplateIdMap = nil
-		log.WithFields(logrus.Fields{"err": err}).Error("反序列化tagId2TemplateIdMap失败")
+		templateId2TagIdMap = nil
+		log.WithFields(logrus.Fields{"err": err}).Error("反序列化templateId2TagIdMap失败")
 	}
-	return tagId2TemplateIdMap, nil
+	return templateId2TagIdMap, nil
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -924,6 +962,13 @@ var indexHtmlString = `<!DOCTYPE html>
     <link type="text/css" rel="stylesheet" href="//unpkg.com/bootstrap-vue@latest/dist/bootstrap-vue.css"/>
 </head>
 <body>
+<div id="loginForm">
+    <b-input-group>
+        <b-form-input type="password" placeholder="token" v-model="token"></b-form-input>
+        <b-button variant="outline-primary" @click="login">login</b-button>
+    </b-input-group>
+</div>
+<hr/>
 <div id="allTemplate">
     <b-button-group style="width: 100%">
         <b-button>allTemplate</b-button>
@@ -945,11 +990,11 @@ var indexHtmlString = `<!DOCTYPE html>
     </b-button-group>
     <b-form-textarea :rows="rows" v-model="json" @input="flushRows"></b-form-textarea>
 </div>
-<div id="tagId2TemplateIdMap">
+<div id="templateId2TagIdMap">
     <b-button-group style="width: 100%">
         <b-button>tag-template</b-button>
-        <b-button variant="primary" @click="saveTagId2TemplateIdMap">save</b-button>
-        <b-button variant="info" @click="getTagId2TemplateIdMap">flush</b-button>
+        <b-button variant="primary" @click="saveTemplateId2TagIdMap">save</b-button>
+        <b-button variant="info" @click="getTemplateId2TagIdMap">flush</b-button>
     </b-button-group>
     <b-form-textarea :rows="rows" v-model="json" @input="flushRows"></b-form-textarea>
 </div>
@@ -1000,7 +1045,7 @@ var indexHtmlString = `<!DOCTYPE html>
 <hr/>
 <div id="sendTemplateByTagId">
     <b-input-group prepend="sendTemplateByTagId">
-        <b-form-input placeholder="tagId" v-model="tagId"></b-form-input>
+        <b-form-input placeholder="templateId" v-model="templateId"></b-form-input>
         <b-form-input placeholder="url" v-model="url"></b-form-input>
         <b-input-group-append>
             <b-button variant="primary" @click="sendTemplateByTagId">send</b-button>
@@ -1014,6 +1059,36 @@ var indexHtmlString = `<!DOCTYPE html>
 <script src="//unpkg.com/bootstrap-vue@latest/dist/bootstrap-vue.js"></script>
 <script src="//cdn.bootcss.com/jquery/3.4.1/jquery.js"></script>
 <script>
+    var loginForm = new Vue({
+        el: '#loginForm',
+        data: {
+            token: "",
+        },
+        methods: {
+            login: function () {
+                $.ajax({
+                    url: 'login',
+                    type: 'post',
+                    data: {"token": loginForm.token},
+                    contentType: "application/x-www-form-urlencoded",
+                    dataType: "json",
+                    error: ajaxErrorDeal,
+                    success: function (data) {
+                        if (data.code == 1) {
+                            alert('登录成功')
+                            allTemplate.listAllTemplate()
+                            allTag.listAllTag()
+                            allUserInfo.listAllUserInfo()
+                            templateId2TagIdMap.getTemplateId2TagIdMap()
+                        } else {
+                            alert('登录失败: ' + JSON.stringify(data.massage))
+                        }
+                    }
+                });
+            },
+        },
+    })
+
     var allTemplate = new Vue({
         el: '#allTemplate',
         data: {
@@ -1116,37 +1191,37 @@ var indexHtmlString = `<!DOCTYPE html>
         },
     })
 
-    var tagId2TemplateIdMap = new Vue({
-        el: '#tagId2TemplateIdMap',
+    var templateId2TagIdMap = new Vue({
+        el: '#templateId2TagIdMap',
         data: {
             json: "",
             rows: 1,
         },
         methods: {
-            saveTagId2TemplateIdMap: function () {
-                if (!window.confirm("saveTagId2TemplateIdMap？")) {
+            saveTemplateId2TagIdMap: function () {
+                if (!window.confirm("saveTemplateId2TagIdMap？")) {
                     return
                 }
                 $.ajax({
-                    url: 'saveTagId2TemplateIdMap',
+                    url: 'saveTemplateId2TagIdMap',
                     type: 'post',
-                    data: {"tagId2TemplateIdMap": tagId2TemplateIdMap.json},
+                    data: {"templateId2TagIdMap": templateId2TagIdMap.json},
                     contentType: "application/x-www-form-urlencoded",
                     dataType: "json",
                     error: ajaxErrorDeal,
                     success: function (data) {
                         if (data.code == 1) {
                             alert('修改成功')
-                            tagId2TemplateIdMap.getTagId2TemplateIdMap()
+                            templateId2TagIdMap.getTemplateId2TagIdMap()
                         } else {
                             alert('修改失败: ' + JSON.stringify(data.massage))
                         }
                     }
                 });
             },
-            getTagId2TemplateIdMap: function () {
+            getTemplateId2TagIdMap: function () {
                 $.ajax({
-                    url: 'getTagId2TemplateIdMap',
+                    url: 'getTemplateId2TagIdMap',
                     type: 'get',
                     data: {},
                     contentType: "application/x-www-form-urlencoded",
@@ -1154,19 +1229,19 @@ var indexHtmlString = `<!DOCTYPE html>
                     error: ajaxErrorDeal,
                     success: function (data) {
                         if (data.code == 1) {
-                            tagId2TemplateIdMap.json = JSON.stringify(data.data, null, 2);
+                            templateId2TagIdMap.json = JSON.stringify(data.data, null, 2);
                         } else {
-                            tagId2TemplateIdMap.json = JSON.stringify(data.massage)
+                            templateId2TagIdMap.json = JSON.stringify(data.massage)
                         }
-                        if (tagId2TemplateIdMap.json == null) {
-                            tagId2TemplateIdMap.json = ""
+                        if (templateId2TagIdMap.json == null) {
+                            templateId2TagIdMap.json = ""
                         }
-                        tagId2TemplateIdMap.rows = tagId2TemplateIdMap.json.split("\n").length
+                        templateId2TagIdMap.rows = templateId2TagIdMap.json.split("\n").length
                     }
                 });
             },
             flushRows: function (text) {
-                tagId2TemplateIdMap.rows = text.split("\n").length
+                templateId2TagIdMap.rows = text.split("\n").length
             },
         },
     })
@@ -1345,7 +1420,7 @@ var indexHtmlString = `<!DOCTYPE html>
         el: '#sendTemplateByTagId',
         data: {
             rows: 1,
-            tagId: "",
+            templateId: "",
             url: "",
             data: "",
         },
@@ -1358,7 +1433,7 @@ var indexHtmlString = `<!DOCTYPE html>
                     url: 'sendTemplateByTagId',
                     type: 'post',
                     data: {
-                        "tagId": sendTemplateByTagId.tagId,
+                        "templateId": sendTemplateByTagId.templateId,
                         "url": sendTemplateByTagId.url,
                         "data": sendTemplateByTagId.data
                     },
@@ -1379,11 +1454,6 @@ var indexHtmlString = `<!DOCTYPE html>
             },
         },
     })
-
-    allTemplate.listAllTemplate()
-    allTag.listAllTag()
-    allUserInfo.listAllUserInfo()
-    tagId2TemplateIdMap.getTagId2TemplateIdMap()
 
     function ajaxErrorDeal() {
         alert("网络错误!");
