@@ -6,11 +6,11 @@ import (
 	"github.com/gin-contrib/sessions"
 	"github.com/gin-contrib/sessions/cookie"
 	"github.com/gin-gonic/gin"
-	"github.com/gofrs/uuid"
 	"github.com/parnurzeal/gorequest"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"os"
 	"path"
@@ -24,7 +24,7 @@ var log = logrus.New()
 var timeout = 5 * time.Second
 var retry = 3
 var secretKey = "secret"
-var secret = uuid.Must(uuid.NewV4()).String()
+var secret = strconv.FormatFloat(rand.Float64(), 'E', -1, 64)
 
 var token string
 var appId string
