@@ -1,4 +1,6 @@
 FROM golang AS builder
+ENV GOPROXY="https://goproxy.io"
+ENV GO111MODULE=on
 WORKDIR /src
 COPY . .
 RUN go mod download
