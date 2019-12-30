@@ -9,11 +9,9 @@ import (
 	"github.com/parnurzeal/gorequest"
 	"github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
-	"io/ioutil"
 	"math/rand"
 	"net/http"
 	"os"
-	"path"
 	"strconv"
 	"time"
 )
@@ -236,74 +234,6 @@ func sendTemplateToTag(templateId string, tagId int, url string, dataMap map[str
 		}
 	}
 	return failOpenIds, nil
-}
-
-//----------------------------------------------------------------------------------------------------------------------
-
-func writeFileOrCreateIfNotExist(filePath string, text []byte) error {
-	_, err := os.Stat(filePath)
-	if err == nil || os.IsExist(err) {
-		err = ioutil.WriteFile(filePath, text, 0644)
-		if err != nil {
-			log.WithFields(logrus.Fields{"err": err}).Error("写入文件失败")
-		}
-		return err
-	}
-	return createFile(filePath, text)
-}
-
-func readFileOrCreateIfNotExist(filePath string, defaultText string) (string, error) {
-	_, err := os.Stat(filePath)
-	if err == nil || os.IsExist(err) {
-		bytes, err := readFile(filePath)
-		if err != nil {
-			return "", err
-		}
-		text := string(bytes)
-		log.WithFields(logrus.Fields{"text": text}).Info("读取文件文本")
-		return text, err
-	}
-	err = createFile(filePath, []byte(defaultText))
-	return defaultText, err
-}
-
-func createFile(filePath string, defaultData []byte) error {
-	folderPath, _ := path.Split(filePath)
-	log.WithFields(logrus.Fields{"folderPath": folderPath}).Info("文件父文件夹")
-	if folderPath != "" {
-		err := os.MkdirAll(folderPath, 0666)
-		if err != nil {
-			log.WithFields(logrus.Fields{"err": err}).Error("创建父文件夹失败")
-			return err
-		}
-	}
-
-	file, err := os.Create(filePath)
-	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("创建文件失败")
-		return err
-	}
-	defer file.Close()
-	_, err = file.Write(defaultData)
-	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("写入文件初始文本失败")
-	}
-	return err
-}
-
-func readFile(filePath string) ([]byte, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("打开文件失败")
-		return nil, err
-	}
-	defer file.Close()
-	bytes, err := ioutil.ReadAll(file)
-	if err != nil {
-		log.Error("读取文件失败")
-		return nil, err
-	}
-	return bytes, err
 }
 
 //----------------------------------------------------------------------------------------------------------------------
