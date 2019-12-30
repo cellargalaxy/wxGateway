@@ -31,9 +31,6 @@ var appId string
 var appSecret string
 var accessToken string
 
-var templateId2TagIdMap map[string]int
-var dataFilePath = "data.json"
-
 type Template struct {
 	TemplateId string `json:"template_id"`
 	Title      string `json:"title"`
@@ -77,7 +74,6 @@ func readConfig() error {
 	log.WithFields(logrus.Fields{"appSecret": len(appSecret)}).Infof("环境变量配置公众号appSecret长度")
 	token = os.Getenv("TOKEN")
 	log.WithFields(logrus.Fields{"token": len(token)}).Infof("环境变量配置token长度")
-	getTemplateId2TagIdMap()
 	return nil
 }
 
@@ -102,9 +98,6 @@ func startWebService() {
 	})
 	engine.GET("/listAllUserInfo", validate, func(context *gin.Context) {
 		context.JSON(http.StatusOK, createResponseData(listAllUserInfo()))
-	})
-	engine.GET("/getTemplateId2TagIdMap", validate, func(context *gin.Context) {
-		context.JSON(http.StatusOK, createResponseData(getTemplateId2TagIdMap()))
 	})
 
 	engine.POST("/login", func(context *gin.Context) {
@@ -134,19 +127,6 @@ func startWebService() {
 		}
 		context.JSON(http.StatusOK, createResponseData(deleteTag(tagId)))
 	})
-	engine.POST("/saveTemplateId2TagIdMap", validate, func(context *gin.Context) {
-		templateId2TagIdMapString := context.PostForm("templateId2TagIdMap")
-		log.WithFields(logrus.Fields{"templateId2TagIdMap": templateId2TagIdMapString}).Info("saveTemplateId2TagIdMap表单参数")
-		var t2tMap map[string]int
-		err := json.Unmarshal([]byte(templateId2TagIdMapString), &t2tMap)
-		if err == nil {
-			log.WithFields(logrus.Fields{"t2tMap": t2tMap}).Info("反序列化templateId2TagIdMap成功")
-			context.JSON(http.StatusOK, createResponseData(saveTemplateId2TagIdMap(t2tMap)))
-		} else {
-			log.WithFields(logrus.Fields{"err": err}).Error("反序列化tag2TemplateMap失败")
-			context.JSON(http.StatusOK, createResponseData(nil, err))
-		}
-	})
 	engine.POST("/addTagToUser", validate, func(context *gin.Context) {
 		tagIdString := context.PostForm("tagId")
 		openIdString := context.PostForm("openId")
@@ -171,16 +151,23 @@ func startWebService() {
 		}
 		context.JSON(http.StatusOK, createResponseData(deleteTagFromUser(tagId, []string{openIdString})))
 	})
-	engine.POST("/sendTemplateByTagId", func(context *gin.Context) {
+	engine.POST("/sendTemplateToTag", func(context *gin.Context) {
 		templateId := context.PostForm("templateId")
+		tagIdString := context.PostForm("tagId")
 		url := context.PostForm("url")
 		dataString := context.PostForm("data")
-		log.WithFields(logrus.Fields{"templateId": templateId, "url": url, "data": dataString}).Info("sendTemplateByTagId表单参数")
+		log.WithFields(logrus.Fields{"templateId": templateId, "tagId": tagIdString, "url": url, "data": dataString}).Info("sendTemplateByTagId表单参数")
+		tagId, err := strconv.Atoi(tagIdString)
+		if err != nil {
+			log.Error("tagId参数非法")
+			context.JSON(http.StatusOK, createResponseData(nil, err))
+			return
+		}
 		var data map[string]string
-		err := json.Unmarshal([]byte(dataString), &data)
+		err = json.Unmarshal([]byte(dataString), &data)
 		if err == nil {
 			log.WithFields(logrus.Fields{"data": data}).Info("反序列化data成功")
-			context.JSON(http.StatusOK, createResponseData(sendTemplateByTagId(templateId, url, data)))
+			context.JSON(http.StatusOK, createResponseData(sendTemplateToTag(templateId, tagId, url, data)))
 		} else {
 			log.WithFields(logrus.Fields{"err": err}).Error("反序列化data失败")
 			context.JSON(http.StatusOK, createResponseData(nil, err))
@@ -231,13 +218,7 @@ func listAllUserInfo() ([]UserInfo, error) {
 }
 
 //给标签用户发送模板消息
-func sendTemplateByTagId(templateId string, url string, dataMap map[string]string) ([]string, error) {
-	tagId, exist := templateId2TagIdMap[templateId]
-	if !exist {
-		log.Error("templateId没有对应的tagId")
-		return nil, errors.New("templateId没有对应的tagId")
-	}
-	log.WithFields(logrus.Fields{"templateId": templateId}).Info("tagId对应的templateId")
+func sendTemplateToTag(templateId string, tagId int, url string, dataMap map[string]string) ([]string, error) {
 	data := map[string]map[string]string{}
 	for key, value := range dataMap {
 		data[key] = map[string]string{"value": value}
@@ -255,45 +236,6 @@ func sendTemplateByTagId(templateId string, url string, dataMap map[string]strin
 		}
 	}
 	return failOpenIds, nil
-}
-
-//----------------------------------------------------------------------------------------------------------------------
-
-func saveTemplateId2TagIdMap(t2tMap map[string]int) (success bool, err error) {
-	bytes, err := json.Marshal(t2tMap)
-	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("序列化templateId2TagIdMap失败")
-		return false, err
-	}
-	err = writeFileOrCreateIfNotExist(dataFilePath, bytes)
-	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("写入数据文件失败")
-		return false, err
-	}
-	templateId2TagIdMap = t2tMap
-	return true, nil
-}
-
-func getTemplateId2TagIdMap() (map[string]int, error) {
-	if templateId2TagIdMap != nil && len(templateId2TagIdMap) > 0 {
-		return templateId2TagIdMap, nil
-	}
-	jsonString, err := readFileOrCreateIfNotExist(dataFilePath, "{}")
-	if err != nil {
-		log.WithFields(logrus.Fields{"err": err}).Error("读取数据文件失败")
-		return nil, err
-	}
-	log.WithFields(logrus.Fields{"jsonString": jsonString}).Info("读取数据文件")
-	var t2tMap map[string]int
-	err = json.Unmarshal([]byte(jsonString), &t2tMap)
-	if err == nil {
-		templateId2TagIdMap = t2tMap
-		log.WithFields(logrus.Fields{"templateId2TagIdMap": templateId2TagIdMap}).Info("反序列化templateId2TagIdMap成功")
-	} else {
-		templateId2TagIdMap = nil
-		log.WithFields(logrus.Fields{"err": err}).Error("反序列化templateId2TagIdMap失败")
-	}
-	return templateId2TagIdMap, nil
 }
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -990,14 +932,6 @@ var indexHtmlString = `<!DOCTYPE html>
     </b-button-group>
     <b-form-textarea :rows="rows" v-model="json" @input="flushRows"></b-form-textarea>
 </div>
-<div id="templateId2TagIdMap">
-    <b-button-group style="width: 100%">
-        <b-button>tag-template</b-button>
-        <b-button variant="primary" @click="saveTemplateId2TagIdMap">save</b-button>
-        <b-button variant="info" @click="getTemplateId2TagIdMap">flush</b-button>
-    </b-button-group>
-    <b-form-textarea :rows="rows" v-model="json" @input="flushRows"></b-form-textarea>
-</div>
 <hr/>
 <div id="createTag">
     <b-input-group prepend="createTag">
@@ -1030,25 +964,26 @@ var indexHtmlString = `<!DOCTYPE html>
         <b-form-input placeholder="tagId" v-model="tagId"></b-form-input>
         <b-form-input placeholder="openId" v-model="openId"></b-form-input>
         <b-input-group-append>
-            <b-button variant="primary" @click="deleteTagFromUser">delete</b-button>
+            <b-button variant="danger" @click="deleteTagFromUser">delete</b-button>
         </b-input-group-append>
     </b-input-group>
 </div>
 <hr/>
-<div id="allTagUerInfo">
+<div id="allTagUserInfo">
     <b-button-group style="width: 100%">
-        <b-button>allTagUerInfo</b-button>
-        <b-button variant="info" @click="listAllTagUerInfo">flush</b-button>
+        <b-button>allTagUserInfo</b-button>
+        <b-button variant="info" @click="listAllTagUserInfo">flush</b-button>
     </b-button-group>
     <b-form-textarea :rows="rows" v-model="json" @input="flushRows"></b-form-textarea>
 </div>
 <hr/>
-<div id="sendTemplateByTagId">
-    <b-input-group prepend="sendTemplateByTagId">
+<div id="sendTemplateToTag">
+    <b-input-group prepend="sendTemplateToTag">
         <b-form-input placeholder="templateId" v-model="templateId"></b-form-input>
+        <b-form-input placeholder="tagId" v-model="tagId"></b-form-input>
         <b-form-input placeholder="url" v-model="url"></b-form-input>
         <b-input-group-append>
-            <b-button variant="primary" @click="sendTemplateByTagId">send</b-button>
+            <b-button variant="primary" @click="sendTemplateToTag">send</b-button>
         </b-input-group-append>
     </b-input-group>
     <b-form-textarea :rows="rows" v-model="data" placeholder="data" @input="flushRows"></b-form-textarea>
@@ -1079,7 +1014,6 @@ var indexHtmlString = `<!DOCTYPE html>
                             allTemplate.listAllTemplate()
                             allTag.listAllTag()
                             allUserInfo.listAllUserInfo()
-                            templateId2TagIdMap.getTemplateId2TagIdMap()
                         } else {
                             alert('登录失败: ' + JSON.stringify(data.massage))
                         }
@@ -1187,61 +1121,6 @@ var indexHtmlString = `<!DOCTYPE html>
             },
             flushRows: function (text) {
                 allUserInfo.rows = text.split("\n").length
-            },
-        },
-    })
-
-    var templateId2TagIdMap = new Vue({
-        el: '#templateId2TagIdMap',
-        data: {
-            json: "",
-            rows: 1,
-        },
-        methods: {
-            saveTemplateId2TagIdMap: function () {
-                if (!window.confirm("saveTemplateId2TagIdMap？")) {
-                    return
-                }
-                $.ajax({
-                    url: 'saveTemplateId2TagIdMap',
-                    type: 'post',
-                    data: {"templateId2TagIdMap": templateId2TagIdMap.json},
-                    contentType: "application/x-www-form-urlencoded",
-                    dataType: "json",
-                    error: ajaxErrorDeal,
-                    success: function (data) {
-                        if (data.code == 1) {
-                            alert('修改成功')
-                            templateId2TagIdMap.getTemplateId2TagIdMap()
-                        } else {
-                            alert('修改失败: ' + JSON.stringify(data.massage))
-                        }
-                    }
-                });
-            },
-            getTemplateId2TagIdMap: function () {
-                $.ajax({
-                    url: 'getTemplateId2TagIdMap',
-                    type: 'get',
-                    data: {},
-                    contentType: "application/x-www-form-urlencoded",
-                    dataType: "json",
-                    error: ajaxErrorDeal,
-                    success: function (data) {
-                        if (data.code == 1) {
-                            templateId2TagIdMap.json = JSON.stringify(data.data, null, 2);
-                        } else {
-                            templateId2TagIdMap.json = JSON.stringify(data.massage)
-                        }
-                        if (templateId2TagIdMap.json == null) {
-                            templateId2TagIdMap.json = ""
-                        }
-                        templateId2TagIdMap.rows = templateId2TagIdMap.json.split("\n").length
-                    }
-                });
-            },
-            flushRows: function (text) {
-                templateId2TagIdMap.rows = text.split("\n").length
             },
         },
     })
@@ -1375,14 +1254,14 @@ var indexHtmlString = `<!DOCTYPE html>
         },
     })
 
-    var allTagUerInfo = new Vue({
-        el: '#allTagUerInfo',
+    var allTagUserInfo = new Vue({
+        el: '#allTagUserInfo',
         data: {
             json: "",
             rows: 1,
         },
         methods: {
-            listAllTagUerInfo: function () {
+            listAllTagUserInfo: function () {
                 const tags = JSON.parse(allTag.json)
                 const userInfos = JSON.parse(allUserInfo.json)
                 const tagId2UserInfos = {}
@@ -1407,35 +1286,37 @@ var indexHtmlString = `<!DOCTYPE html>
                         }
                     }
                 }
-                allTagUerInfo.json = JSON.stringify(tag2UserInfos, null, 2)
-                allTagUerInfo.rows = allTagUerInfo.json.split("\n").length
+                allTagUserInfo.json = JSON.stringify(tag2UserInfos, null, 2)
+                allTagUserInfo.rows = allTagUserInfo.json.split("\n").length
             },
             flushRows: function (text) {
-                allTagUerInfo.rows = text.split("\n").length
+                allTagUserInfo.rows = text.split("\n").length
             },
         },
     })
 
-    var sendTemplateByTagId = new Vue({
-        el: '#sendTemplateByTagId',
+    var sendTemplateToTag = new Vue({
+        el: '#sendTemplateToTag',
         data: {
             rows: 1,
             templateId: "",
+            tagId: "",
             url: "",
             data: "",
         },
         methods: {
-            sendTemplateByTagId: function () {
-                if (!window.confirm("sendTemplateByTagId？")) {
+            sendTemplateToTag: function () {
+                if (!window.confirm("sendTemplateToTag？")) {
                     return
                 }
                 $.ajax({
-                    url: 'sendTemplateByTagId',
+                    url: 'sendTemplateToTag',
                     type: 'post',
                     data: {
-                        "templateId": sendTemplateByTagId.templateId,
-                        "url": sendTemplateByTagId.url,
-                        "data": sendTemplateByTagId.data
+                        "templateId": sendTemplateToTag.templateId,
+                        "tagId": sendTemplateToTag.tagId,
+                        "url": sendTemplateToTag.url,
+                        "data": sendTemplateToTag.data
                     },
                     contentType: "application/x-www-form-urlencoded",
                     dataType: "json",
@@ -1450,7 +1331,7 @@ var indexHtmlString = `<!DOCTYPE html>
                 });
             },
             flushRows: function (text) {
-                sendTemplateByTagId.rows = text.split("\n").length
+                sendTemplateToTag.rows = text.split("\n").length
             },
         },
     })
